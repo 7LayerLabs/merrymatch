@@ -1,26 +1,177 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --cream: #f8e9ce;
+  --paper: #fdf6ea;
+  --card: #fffbf4;
+  --pine: #214337;
+  --pine-2: #2d5a49;
+  --pine-3: #173127;
+  --teal: #96bdb0;
+  --teal-2: #c9ddd5;
+  --coral: #ce7e69;
+  --coral-2: #b9604b;
+  --gold: #edbd62;
+  --gold-2: #d89136;
+  --ink: #1f2d27;
+  --muted: #66716b;
+  --line: rgba(33, 67, 55, 0.13);
+  --line-2: rgba(33, 67, 55, 0.22);
+  --shadow: 0 1px 0 rgba(33, 67, 55, 0.06), 0 8px 24px -12px rgba(33, 67, 55, 0.28);
+  --shadow-lg: 0 2px 0 rgba(33, 67, 55, 0.05), 0 24px 60px -24px rgba(23, 49, 39, 0.45);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-cream: var(--cream);
+  --color-paper: var(--paper);
+  --color-card: var(--card);
+  --color-pine: var(--pine);
+  --color-pine-2: var(--pine-2);
+  --color-pine-3: var(--pine-3);
+  --color-teal: var(--teal);
+  --color-teal-2: var(--teal-2);
+  --color-coral: var(--coral);
+  --color-coral-2: var(--coral-2);
+  --color-gold: var(--gold);
+  --color-gold-2: var(--gold-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --font-sans: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
+  --font-script: var(--font-last-christmas), var(--font-fraunces), Georgia, serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  -webkit-text-size-adjust: 100%;
+  background: var(--paper);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Paper grain */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.35;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.13 0 0 0 0 0.26 0 0 0 0 0.21 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@layer base {
+  .grid > * {
+    min-width: 0;
+  }
+}
+
+@layer components {
+.font-display {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  letter-spacing: -0.015em;
+}
+
+/* Festive script for the big moments: logo, hero, the name in the envelope. */
+.font-script {
+  font-family: var(--font-last-christmas), var(--font-fraunces), Georgia, serif;
+  font-weight: 700;
+  font-style: normal;
+  letter-spacing: 0;
+}
+
+.eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+}
+
+.checker-band {
+  background: conic-gradient(var(--coral) 25%, #f6e5c8 0 50%, var(--coral) 0 75%, #f6e5c8 0) 0 0 / 18px 18px;
+}
+
+.starburst {
+  clip-path: polygon(50% 0, 56% 39%, 80% 20%, 61% 44%, 100% 50%, 61% 56%, 80% 80%, 56% 61%, 50% 100%, 44% 61%, 20% 80%, 39% 56%, 0 50%, 39% 44%, 20% 20%, 44% 39%);
+}
+
+.input {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--line-2);
+  background: #fffdf8;
+  padding: 9px 12px;
+  font-size: 15px;
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.input::placeholder {
+  color: #9aa39e;
+}
+.input:focus {
+  border-color: var(--pine-2);
+  box-shadow: 0 0 0 3px rgba(150, 189, 176, 0.45);
+}
+
+:focus-visible {
+  outline: 2px solid var(--pine-2);
+  outline-offset: 2px;
+}
+
+.scroll-x {
+  scrollbar-width: none;
+}
+.scroll-x::-webkit-scrollbar {
+  display: none;
+}
+
+}
+
+@keyframes bob {
+  0%, 100% { transform: translateY(0) rotate(var(--tilt, 0deg)); }
+  50% { transform: translateY(-6px) rotate(var(--tilt, 0deg)); }
+}
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+@keyframes twinkle {
+  0%, 100% { transform: scale(0.85) rotate(0deg); opacity: 0.75; }
+  50% { transform: scale(1.1) rotate(20deg); opacity: 1; }
+}
+@keyframes candy-roll {
+  to { background-position: 25.46px 0; }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, rgba(33, 67, 55, 0.06), rgba(33, 67, 55, 0.12), rgba(33, 67, 55, 0.06));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

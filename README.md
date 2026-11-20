@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Merry Match
 
-## Getting Started
+Secret Santa and family wishlists for one group, every Christmas.
+Next.js 16 + InstantDB. No other services.
 
-First, run the development server:
+## Run it on this PC
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+npm install
+npm run dev -- -p 3020
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3020. `.env.local` holds the InstantDB keys (never commit it).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Local-only test sign-in (works only under `next dev` with `MM_DEV_LOGIN=1`, and only for @example.com accounts):
+http://localhost:3020/dev?email=demo-olive@example.com
+A sample family ("The Hollis Family": olive, amy, ben, cal, dee) is seeded in the test database.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Tests
 
-## Learn More
+```
+node --test tests/draw.test.ts                      # draw logic stress tests
+node --no-warnings --import ./tests/ts-resolve.mjs --test tests/parseList.test.ts   # pasted-list reader (Apple Notes, share links)
+node --env-file=.env.local tests/e2e.mjs            # full season against a running dev server (69 checks)
+node --env-file=.env.local tests/seed-demo.mjs      # reseed the sample family (add --draw to draw names)
+```
 
-To learn more about Next.js, take a look at the following resources:
+## How it works
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **Sign in:** InstantDB email codes. Invite links are one-time and tied to one person. If the organizer set an email, only that email can use the link.
+- **Writes:** every change goes through `/api/[action]` (`src/server/actions.ts`) with the admin SDK. Browsers can only read.
+- **Privacy:** `instant.perms.ts`. You see only your own match. The organizer sees all matches only after breaking the seal, and everyone is told. You never see coverage on your own gifts. Buyers are private.
+- **Draw:** `src/lib/draw.ts`. Fair shuffle, with a fallback for tight rules. Supports no swapping pairs and avoiding last year's pairs. Dropouts and late joiners are patched in place.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Going live (needs Derek)
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Make a free InstantDB account, then run `npx instant-cli claim` to move the test app into it. Or create a new app and put its ID and admin token in `.env.local`.
+2. `npx instant-cli push all --env .env.local` (schema + permissions).
+3. Deploy to Vercel with `NEXT_PUBLIC_INSTANT_APP_ID` and `INSTANT_APP_ADMIN_TOKEN` set. Do NOT set `MM_DEV_LOGIN` there.
+4. Optional: set `PUBLIC_SITE_URL` to the final domain so invite links use it.
