@@ -4,6 +4,7 @@ import { adminDb } from "./admin";
 import { runDraw, removeAfterDraw, addAfterDraw, type Pair, type Rule } from "@/lib/draw";
 import { cleanUrl, isEmail, MAX_GIFTS, MAX_NOTES, MAX_PEOPLE, MAX_IMPORT } from "@/lib/format";
 import { storeFromUrl } from "@/lib/parseList";
+import { aiParseWishlist, aiSuggestGiftIdeas, checkAiRateLimit } from "./ai";
 import { fetchPreview } from "./preview";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -859,6 +860,65 @@ const backup: Handler = async (body, ctx) => {
   };
 };
 
+const aiParseList: Handler = async (body, ctx) => {
+  const u = requireUser(ctx);
+  need(checkAiRateLimit(u.id), 429, "Easy there, give the AI helper a minute and try again.");
+  const text = typeof body.text === "string" ? body.text.slice(0, MAX_IMPORT) : "";
+  const imageBase64 = typeof body.imageBase64 === "string" ? body.imageBase64.trim() : "";
+  const imageMime = typeof body.imageMime === "string" ? body.imageMime.trim() : "";
+  need(text.trim() || imageBase64, 400, "Paste a list or upload a screenshot first.");
+  if (imageBase64) {
+    need(/^image\/(jpeg|png|webp)$/i.test(imageMime), 400, "Choose a JPG, PNG, or WebP image.");
+    need(imageBase64.length < 3_500_000, 400, "That image is too large. Try cropping it.");
+  }
+  try {
+    return await aiParseWishlist({ text, imageBase64, imageMime });
+  } catch (e: any) {
+    if (e?.message === "NO_AI_KEY") {
+      throw new ApiError(503, "AI reading isn't turned on yet (add GEMINI_API_KEY to .env.local).");
+    }
+    console.error("[aiParseList]", e);
+    throw new ApiError(502, "Couldn't read that list right now. Please try again in a moment.");
+  }
+};
+
+const aiSuggestGifts: Handler = async (body, ctx) => {
+  const ex = await loadExchange(idOf(body.exchangeId, "exchange"));
+  const me = requireParticipant(ex, ctx);
+  need(checkAiRateLimit(ctx.user!.id), 429, "Easy there, give the gift helper a minute and try again.");
+  const rid = idOf(body.recipientId, "person");
+  const recipient = (ex.participants ?? []).find((p: any) => p.id === rid);
+  need(recipient, 404, "That person isn't in this year's exchange.");
+  need(recipient.id !== me.id, 400, "Use Paste a list on My List to add ideas for yourself.");
+  const hint = str(body.hint, 200, "Hint");
+
+  const r: any = await adminDb.query({
+    gifts: { $: { where: { "exchange.id": ex.id, "owner.id": rid } } },
+  });
+  const existingGifts = (r.gifts ?? []).map((g: any) => ({
+    title: String(g.title || ""),
+    store: g.store ?? null,
+    priceCents: g.priceCents ?? null,
+  }));
+
+  try {
+    const ideas = await aiSuggestGiftIdeas({
+      recipientName: recipient.name,
+      budgetCents: ex.budgetCents ?? null,
+      existingGifts,
+      notes: recipient.notes ?? "",
+      hint,
+    });
+    return { ideas };
+  } catch (e: any) {
+    if (e?.message === "NO_AI_KEY") {
+      throw new ApiError(503, "Gift suggestions aren't turned on yet (add GEMINI_API_KEY to .env.local).");
+    }
+    console.error("[aiSuggestGifts]", e);
+    throw new ApiError(502, "Couldn't brainstorm ideas right now. Please try again in a moment.");
+  }
+};
+
 // Local testing only: never active in production builds.
 const devLogin: Handler = async (body) => {
   need(process.env.NODE_ENV === "development" && process.env.MM_DEV_LOGIN === "1", 404, "Unknown action.");
@@ -894,4 +954,6 @@ export const handlers: Record<string, { handler: Handler; auth: boolean }> = {
   newYear: { handler: newYear, auth: true },
   copyLastYearGifts: { handler: copyLastYearGifts, auth: true },
   backup: { handler: backup, auth: true },
+  aiParseList: { handler: aiParseList, auth: true },
+  aiSuggestGifts: { handler: aiSuggestGifts, auth: true },
 };

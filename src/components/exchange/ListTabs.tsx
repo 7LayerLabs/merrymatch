@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowLeft, ClipboardPaste, Gift, History, NotebookPen, Plus, ShoppingBag, Star } from "lucide-react";
+import { ArrowLeft, ClipboardPaste, ExternalLink, Gift, History, NotebookPen, Plus, ShoppingBag, Sparkles, Star, Wand2 } from "lucide-react";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { firstName, formatMoney, MAX_GIFTS, MAX_NOTES, parseMoney } from "@/lib/format";
@@ -32,7 +32,7 @@ export function MyListTab({ m }: { m: Model }) {
           </Pill>
           <div className="ml-auto flex gap-2">
             <Button variant="secondary" size="sm" onClick={() => setImporting(true)} icon={<ClipboardPaste className="h-3.5 w-3.5" />}>
-              Paste a list
+              Paste or snap a list
             </Button>
             <Button size="sm" onClick={() => setAdding(true)} icon={<Plus className="h-3.5 w-3.5" />}>
               Add gift
@@ -54,14 +54,14 @@ export function MyListTab({ m }: { m: Model }) {
           <Empty
             icon={<Gift className="h-6 w-6" />}
             title="Your list is empty"
-            body="Add a few things you'd love, or paste a whole list from your Notes app in one go."
+            body="Add a few things you'd love, paste from Notes, or upload a screenshot of your cart or handwritten list."
             action={
               <div className="flex flex-wrap justify-center gap-2">
                 <Button onClick={() => setAdding(true)} icon={<Plus className="h-4 w-4" />}>
                   Add a gift
                 </Button>
                 <Button variant="secondary" onClick={() => setImporting(true)} icon={<ClipboardPaste className="h-4 w-4" />}>
-                  Paste a list
+                  Paste or snap a list
                 </Button>
               </div>
             }
@@ -327,9 +327,90 @@ function PersonList({ m, p, back }: { m: Model; p: Person; back: () => void }) {
         <Empty
           icon={<Gift className="h-6 w-6" />}
           title={`${firstName(p.name)} hasn't added ideas yet`}
-          body="Their list updates live, so check back. Their notes above might help in the meantime."
+          body="Their list updates live, so check back. You can also brainstorm ideas below from their notes."
         />
       )}
+      <GiftIdeaScout exchangeId={m.ex.id} person={p} budgetCents={m.ex.budgetCents} />
+    </div>
+  );
+}
+
+type IdeaRow = { title: string; priceCents: number; store: string; why: string; searchUrl: string };
+
+function GiftIdeaScout({ exchangeId, person, budgetCents }: { exchangeId: string; person: Person; budgetCents?: number | null }) {
+  const toast = useToast();
+  const [hint, setHint] = useState("");
+  const [ideas, setIdeas] = useState<IdeaRow[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const generate = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setLoading(true);
+    try {
+      const r = await api<{ ideas: IdeaRow[] }>("aiSuggestGifts", {
+        exchangeId,
+        recipientId: person.id,
+        hint,
+      });
+      setIdeas(r.ideas ?? []);
+    } catch (err) {
+      toast.err(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="card mt-5 p-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <Wand2 className="h-4 w-4 text-coral-2" />
+        <div className="font-display text-[18px] font-semibold text-pine">Need gift ideas for {firstName(person.name)}?</div>
+        <Pill tone="gold" className="ml-auto">
+          Private to you
+        </Pill>
+      </div>
+      <p className="mt-1 text-[13px] text-muted">
+        Brainstorms 4 specific gift ideas using {firstName(person.name)}&apos;s wishlist, sizes and please-avoids
+        {budgetCents != null ? `, staying within the ${formatMoney(budgetCents)} limit` : ""}. Nobody else sees what you search here.
+      </p>
+      <form onSubmit={generate} className="mt-3 flex flex-wrap gap-2">
+        <input
+          className="input min-w-[220px] flex-1 text-[13.5px]"
+          value={hint}
+          maxLength={200}
+          onChange={(e) => setHint(e.target.value)}
+          placeholder={`Optional hint about ${firstName(person.name)}: coffee, golf, mysteries, cooking...`}
+        />
+        <Button type="submit" variant="secondary" loading={loading} icon={<Sparkles className="h-4 w-4 text-gold-2" />}>
+          {ideas ? "Try 4 new ideas" : "Get 4 ideas"}
+        </Button>
+      </form>
+      {ideas && ideas.length ? (
+        <div className="mt-4 grid gap-2.5 md:grid-cols-2">
+          {ideas.map((item, idx) => (
+            <div key={idx} className="flex flex-col justify-between rounded-xl border border-[var(--line)] bg-white p-3.5">
+              <div>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="text-[14.5px] font-semibold leading-snug text-ink">{item.title}</div>
+                  <div className="shrink-0 font-display text-[15px] font-semibold text-pine">~{formatMoney(item.priceCents)}</div>
+                </div>
+                <div className="mt-0.5 text-[12px] font-medium text-muted">{item.store}</div>
+                <p className="mt-1.5 text-[12.5px] text-ink/80">{item.why}</p>
+              </div>
+              <div className="mt-3 flex justify-end">
+                <a
+                  href={item.searchUrl}
+                  target="_blank"
+                  rel="noopener noreferrer nofollow"
+                  className="inline-flex h-8 items-center gap-1 rounded-[10px] px-2.5 text-[13px] font-semibold text-pine hover:bg-pine/[0.06]"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" /> Find at {item.store}
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

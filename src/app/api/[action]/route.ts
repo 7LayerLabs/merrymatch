@@ -22,7 +22,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ action:
   let body: unknown = {};
   try {
     const text = await req.text();
-    if (text.length > 200_000) throw new ApiError(413, "That's too much to send at once.");
+    const maxBytes = action === "aiParseList" ? 4_000_000 : 200_000;
+    if (text.length > maxBytes) throw new ApiError(413, "That's too much to send at once.");
     body = text ? JSON.parse(text) : {};
   } catch (e) {
     const status = e instanceof ApiError ? e.status : 400;

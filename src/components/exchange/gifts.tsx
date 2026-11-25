@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { Check, ExternalLink, FileUp, Link2, Pencil, ShoppingBag, Sparkles, Trash2, Undo2, Wand2 } from "lucide-react";
+import { Camera, Check, ExternalLink, FileUp, Link2, Pencil, ShoppingBag, Sparkles, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { formatMoney, hostOf, parseMoney, MAX_IMPORT } from "@/lib/format";
@@ -356,9 +356,48 @@ export function GiftForm({
 
 /* ---------------- Import ---------------- */
 
-type Row = ParsedGift & { keep: boolean; price: string; imageUrl?: string; looking?: boolean };
+type Row = ParsedGift & { note?: string | null; keep: boolean; price: string; imageUrl?: string; looking?: boolean };
 
 type PreviewResult = { title?: string; imageUrl?: string; priceCents?: number | null; store?: string | null; fetched: boolean };
+
+type AttachedImage = { previewUrl: string; base64: string; mime: string; name: string };
+
+async function compressImageFile(file: File): Promise<AttachedImage> {
+  const url = URL.createObjectURL(file);
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error("Couldn't open that image."));
+    el.src = url;
+  });
+  const maxSide = 1500;
+  let w = img.naturalWidth || img.width;
+  let h = img.naturalHeight || img.height;
+  if (w > maxSide || h > maxSide) {
+    const scale = maxSide / Math.max(w, h);
+    w = Math.round(w * scale);
+    h = Math.round(h * scale);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    URL.revokeObjectURL(url);
+    throw new Error("Couldn't process that image.");
+  }
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.84);
+  const comma = dataUrl.indexOf(",");
+  return {
+    previewUrl: url,
+    base64: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl,
+    mime: "image/jpeg",
+    name: file.name || "screenshot.jpg",
+  };
+}
 
 export function ImportDialog({
   open,
@@ -375,11 +414,14 @@ export function ImportDialog({
 }) {
   const toast = useToast();
   const [text, setText] = useState("");
+  const [image, setImage] = useState<AttachedImage | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [avoid, setAvoid] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  const imgRef = useRef<HTMLInputElement>(null);
   const run = useRef(0);
   const [lookup, setLookup] = useState<{ done: number; total: number } | null>(null);
 
@@ -420,34 +462,101 @@ export function ImportDialog({
     if (run.current === mine) setLookup(null);
   };
 
+  const clearImage = () => {
+    if (image?.previewUrl) URL.revokeObjectURL(image.previewUrl);
+    setImage(null);
+  };
+
   const reset = () => {
     run.current++;
     setLookup(null);
     setText("");
+    clearImage();
+    setAiBusy(false);
     setRows(null);
     setAvoid("");
     setError("");
   };
   const close = () => {
-    if (busy) return;
+    if (busy || aiBusy) return;
     reset();
     onClose();
   };
 
+  const aiReview = async () => {
+    setError("");
+    if (!text.trim() && !image) return setError("Paste a list or add a screenshot first.");
+    setAiBusy(true);
+    try {
+      const parsed = await api<{ gifts: Array<ParsedGift & { note?: string | null }>; avoid: string }>("aiParseList", {
+        text,
+        imageBase64: image?.base64,
+        imageMime: image?.mime,
+      });
+      if (!parsed.gifts.length && !parsed.avoid) {
+        return setError("Couldn't spot any gift items in that. Try a clearer photo or put one item per line.");
+      }
+      const next: Row[] = parsed.gifts.map((g) => ({
+        ...g,
+        keep: true,
+        price: g.priceCents != null ? String(g.priceCents / 100) : "",
+      }));
+      setRows(next);
+      setAvoid(parsed.avoid);
+      void fillFromLinks(next);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
   const review = () => {
     setError("");
+    if (image) {
+      void aiReview();
+      return;
+    }
     if (/^\s*https:\/\/(www\.)?icloud\.com\/notes\//i.test(text.trim()) && text.trim().split(/\s+/).length === 1) {
       return setError("That's a link to a shared note. Open the note, select everything, copy it, and paste it here instead.");
     }
     const parsed = parseList(text);
-    if (!parsed.gifts.length && !parsed.avoid) return setError("We couldn't find any items. Put one gift per line and try again.");
+    if (!parsed.gifts.length && !parsed.avoid) {
+      void aiReview();
+      return;
+    }
     const next = parsed.gifts.map((g) => ({ ...g, keep: true, price: g.priceCents != null ? String(g.priceCents / 100) : "" }));
     setRows(next);
     setAvoid(parsed.avoid);
     void fillFromLinks(next);
   };
 
+  const attachImage = async (f: File | undefined) => {
+    if (!f) return;
+    setError("");
+    if (!/^image\/(jpeg|png|webp|heic)$/i.test(f.type) && !/\.(jpe?g|png|webp)$/i.test(f.name)) {
+      return setError("Choose a JPG, PNG, or WebP screenshot or photo.");
+    }
+    if (f.size > 15_000_000) return setError("That photo is too big. Try a screenshot or smaller photo.");
+    try {
+      clearImage();
+      setImage(await compressImageFile(f));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = Array.from(e.clipboardData.items || []);
+    const imgItem = items.find((it) => it.type.startsWith("image/"));
+    if (imgItem) {
+      const f = imgItem.getAsFile();
+      if (f) {
+        e.preventDefault();
+        void attachImage(f);
+        return;
+      }
+    }
     const html = e.clipboardData.getData("text/html");
     if (html && /<a\s/i.test(html)) {
       const converted = htmlToListText(html);
@@ -462,8 +571,12 @@ export function ImportDialog({
 
   const onFile = async (f: File | undefined) => {
     if (!f) return;
+    if (f.type.startsWith("image/") || /\.(jpe?g|png|webp)$/i.test(f.name)) {
+      await attachImage(f);
+      return;
+    }
     if (f.size > 200_000) return setError("That file is too big. Try a shorter list.");
-    if (!/\.(txt|md|markdown|text)$/i.test(f.name) && !f.type.startsWith("text/")) return setError("Choose a .txt or .md file.");
+    if (!/\.(txt|md|markdown|text)$/i.test(f.name) && !f.type.startsWith("text/")) return setError("Choose a screenshot, .txt, or .md file.");
     setText((await f.text()).slice(0, MAX_IMPORT));
   };
 
@@ -485,6 +598,7 @@ export function ImportDialog({
           store: x.store,
           size: x.size,
           color: x.color,
+          note: x.note ?? null,
           imageUrl: x.imageUrl?.startsWith("https://") ? x.imageUrl : null,
         })),
         avoid,
@@ -500,38 +614,64 @@ export function ImportDialog({
   };
 
   return (
-    <Modal open={open} onClose={close} title={rows ? "Check your list" : "Paste your list"} wide>
+    <Modal open={open} onClose={close} title={rows ? "Check your list" : "Paste or snap your list"} wide>
       <AnimatePresence mode="wait">
         {!rows ? (
           <motion.div key="paste" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <p className="text-[13.5px] text-muted">
-              Copy your list from Apple Notes, a text, or anywhere else, and paste it below. Every link gets pulled out, even several on one
-              line, and we look up each one for its name, price and picture. Add a line that says{" "}
-              <span className="font-semibold text-ink">Avoid:</span> for things you don&apos;t want.
+              Paste from Apple Notes, a messy group text, or upload a screenshot of an Amazon cart or handwritten list. Every link gets looked up
+              for its name, price and picture, and <span className="font-semibold text-ink">Smart AI read</span> cleans up paragraphs and photos.
             </p>
             <textarea
-              className="input mt-3 min-h-[220px] resize-y font-mono text-[13px]"
+              className="input mt-3 min-h-[200px] resize-y font-mono text-[13px]"
               value={text}
               onPaste={onPaste}
               onChange={(e) => setText(e.target.value.slice(0, MAX_IMPORT))}
-              placeholder={"Wool socks, size L $18\nAirPods case https://www.amazon.com/...\nCookbook from Barnes & Noble\n\nAvoid:\nCandles\nGift cards to Olive Garden"}
+              placeholder={"Wool socks, size L $18\nAirPods case https://www.amazon.com/...\nOr paste a messy text message or Ctrl+V a screenshot right here!\n\nAvoid:\nCandles"}
               autoFocus
             />
+            {image ? (
+              <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-[var(--line)] bg-white p-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={image.previewUrl} alt="" className="h-14 w-14 rounded-lg border border-[var(--line)] object-cover" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-semibold text-pine">{image.name}</div>
+                  <div className="text-[12px] text-muted">Screenshot attached. AI will pull every gift item from it.</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearImage}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-coral/10 hover:text-coral-2"
+                  aria-label="Remove screenshot"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : null}
             <div className="mt-1 text-right text-[11.5px] text-muted">
               {text.length.toLocaleString()} / {MAX_IMPORT.toLocaleString()}
             </div>
             {error ? <p className="mt-1 text-[13px] font-medium text-coral-2">{error}</p> : null}
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <input ref={fileRef} type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
-              <Button variant="ghost" onClick={() => fileRef.current?.click()} icon={<FileUp className="h-4 w-4" />}>
-                Upload a file
+              <input ref={imgRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => attachImage(e.target.files?.[0])} />
+              <input ref={fileRef} type="file" accept=".txt,.md,.markdown,text/plain,text/markdown,image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
+              <Button variant="secondary" size="sm" onClick={() => imgRef.current?.click()} disabled={aiBusy} icon={<Camera className="h-4 w-4" />}>
+                Screenshot / photo
               </Button>
-              <div className="ml-auto flex gap-2">
-                <Button variant="ghost" onClick={close}>
+              <Button variant="ghost" size="sm" onClick={() => fileRef.current?.click()} disabled={aiBusy} icon={<FileUp className="h-4 w-4" />}>
+                .txt file
+              </Button>
+              <div className="ml-auto flex flex-wrap gap-2">
+                <Button variant="ghost" onClick={close} disabled={aiBusy}>
                   Cancel
                 </Button>
-                <Button onClick={review} disabled={!text.trim()} icon={<Sparkles className="h-4 w-4 text-gold" />}>
-                  Read my list
+                {!image && text.trim() ? (
+                  <Button variant="secondary" onClick={aiReview} loading={aiBusy} icon={<Wand2 className="h-4 w-4" />}>
+                    Smart AI read
+                  </Button>
+                ) : null}
+                <Button onClick={review} loading={aiBusy} disabled={!text.trim() && !image} icon={<Sparkles className="h-4 w-4 text-gold" />}>
+                  {image ? "Read photo with AI" : "Read my list"}
                 </Button>
               </div>
             </div>
@@ -598,9 +738,11 @@ export function ImportDialog({
                         </div>
                         {r.store ? <Pill>{r.store}</Pill> : null}
                         {r.size ? <Pill>Size {r.size}</Pill> : null}
+                        {r.color ? <Pill>{r.color}</Pill> : null}
                         {r.url ? <Pill tone="teal">Link</Pill> : null}
                         {over ? <Pill tone="coral">Over limit</Pill> : null}
                       </div>
+                      {r.note ? <div className="text-[12px] italic text-ink/70">{r.note}</div> : null}
                     </div>
                   </div>
                 );
